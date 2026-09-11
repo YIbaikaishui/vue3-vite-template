@@ -1,0 +1,59 @@
+# 每月把前后端依赖全部刷新到最新大版本（模板仓库专用）。
+# Dependabot 只处理 semver 范围内的更新；大版本升级由这个 workflow 负责。
+name: deps-refresh
+
+on:
+  schedule:
+    - cron: '0 3 1 * *' # 每月 1 号 03:00 UTC
+  workflow_dispatch: # 支持手动触发
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - uses: astral-sh/setup-uv@v10
+
+      - name: Upgrade frontend dependencies to latest
+        run: |
+          pnpm --dir web install --no-frozen-lockfile
+          pnpm --dir web update --latest
+
+      - name: Upgrade backend lockfile
+        run: uv lock --upgrade
+
+      - name: Frontend typecheck & build
+        run: pnpm --dir web build
+
+      - name: Backend lint & lock check
+        run: |
+          uv sync
+          uv run ruff check app
+
+      - name: Create refresh PR
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: deps/monthly-refresh
+          delete-branch: true
+          commit-message: 'chore(deps): refresh all dependencies to latest'
+          title: 'chore(deps): refresh all dependencies to latest'
+          body: |
+            自动生成的月度依赖刷新（前端 npm + 后端 uv.lock），vue-tsc build + ruff 已通过。
+
+            合并前建议本地 `make dev` 冒烟。
+          labels: dependencies
